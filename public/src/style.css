@@ -36,3 +36,5 @@ dialog{width:440px;max-width:calc(100% - 30px);max-height:calc(100dvh - 32px);ov
 @media(max-width:760px){.meal-period .meal-footer,.recipe-grid .meal-footer{display:flex;padding:6px 12px;min-height:38px}.meal-footer button{min-height:26px;padding:3px 0}.meal-footer .meal-remove{min-width:28px;padding:0;font-size:20px!important}}
 
 @media(max-width:760px){.recipe-register-wrap.purchase-raised{bottom:calc(110px + env(safe-area-inset-bottom,0px))}.content:has(.purchase-floating):has(~ .purchase-raised){padding-bottom:calc(210px + env(safe-area-inset-bottom,0px))}}
+
+.recipe-category-filter{margin-bottom:18px}.recipe-category-filter>span{display:block;font-size:12px;font-weight:600;margin:0 0 10px}.recipe-category-bar{margin-bottom:0}.nutrition-page>.nutrition-dashboard{margin-top:20px}.nutrition-page>.section-head{margin-bottom:20px}@media(max-width:760px){.recipe-category-filter{margin-bottom:15px}.recipe-category-filter>span{font-size:11px}.recipe-category-bar{gap:6px}.nutrition-page>.nutrition-dashboard{margin:18px 0}.nutrition-page>.section-head{margin-bottom:16px}}
