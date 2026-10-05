@@ -1,3 +1,4 @@
+import {extractFoods} from './food-import.js';
 import {validPlan} from './public/src/meal-plan.js';
 import {validProfile,calculateTargets,validNutrition,totalNutrition,assessNutrition} from './public/src/nutrition.js';
 import {validIngredient} from './public/src/ingredients.js';
@@ -77,6 +78,14 @@ async function api(request, env) {
   const user=await currentUser(request,db);
   if(!user)return json({error:'ログインしてください'},401);
   if(path==='/api/me'&&request.method==='GET')return json({user});
+  if(path==='/api/foods/import'&&request.method==='POST'){
+    if(!env.AI||!env.IMAGES)return json({error:'AI・画像保存の設定を確認してください'},503);
+    const input=await body(request,4096);if(!/^[a-f0-9-]{36}$/.test(input.imageId||''))return json({error:'画像を選択してください'},400);
+    const image=await env.IMAGES.get(user.id+'/'+input.imageId);if(!image||!['image/jpeg','image/png','image/webp'].includes(image.httpMetadata?.contentType))return json({error:'画像が見つかりません'},404);
+    if(image.size>5*1024*1024)return json({error:'画像は5MB以下にしてください'},413);
+    const day=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});const usage=await db.prepare('INSERT INTO ai_usage(user_id,day,attempts) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET attempts=attempts+1 WHERE attempts<10 RETURNING attempts').bind(user.id,day).first();if(!usage)return json({error:'AI解析・献立提案は合計1日10回までです'},429);
+    try{const foods=await extractFoods(env,image);return json({foods,remaining:10-usage.attempts});}catch(e){console.error('Food extraction failed',e.message);return json({error:'食材を読み取れませんでした。鮮明な写真で再度試すか、手入力で登録してください。失敗も回数に含まれます'},502);}
+  }
   if(path==='/api/recipes/import'&&request.method==='POST'){
     if(!env.AI)return json({error:'Workers AIの設定を確認してください'},503);
     const input=await body(request,4096);if(!['url','image'].includes(input.kind))return json({error:'登録方法を選択してください'},400);
