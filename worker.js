@@ -1,3 +1,4 @@
+import {validPlan} from './public/src/meal-plan.js';
 import {validProfile,calculateTargets,validNutrition,totalNutrition,assessNutrition} from './public/src/nutrition.js';
 import {validIngredient} from './public/src/ingredients.js';
 import {publicUrl,fetchRecipePage,pageRecipe,extractRecipe} from './recipe-import.js';
@@ -31,7 +32,7 @@ async function body(request, limit=1100000) {
 function validData(data) {
   if(!data||typeof data!=='object'||Array.isArray(data))return false;
   if(data.nutritionProfile!=null&&!validProfile(data.nutritionProfile))return false;
-  if(data.mealLog!==undefined){if(!data.mealLog||typeof data.mealLog!=='object'||Array.isArray(data.mealLog)||Object.keys(data.mealLog).length>730)return false;for(const [date,entries] of Object.entries(data.mealLog)){if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!entries||typeof entries!=='object'||Array.isArray(entries))return false;for(const [slot,log] of Object.entries(entries)){if(!['朝','昼','晩'].includes(slot)||!log||!Number.isSafeInteger(log.recipeId)||typeof log.name!=='string'||(log.nutrition!=null&&!validNutrition(log.nutrition)))return false;}}}
+  if(data.mealLog!==undefined){if(!data.mealLog||typeof data.mealLog!=='object'||Array.isArray(data.mealLog)||Object.keys(data.mealLog).length>730)return false;for(const [date,entries] of Object.entries(data.mealLog)){if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!entries||typeof entries!=='object'||Array.isArray(entries)||Object.keys(entries).some(k=>!['朝','昼','晩'].includes(k)))return false;for(const [slot,value] of Object.entries(entries)){const logs=Array.isArray(value)?value:[value];if(logs.length>100||new Set(logs.map(l=>l?.recipeId)).size!==logs.length||logs.some(log=>!log||!Number.isSafeInteger(log.recipeId)||typeof log.name!=='string'||(log.nutrition!=null&&!validNutrition(log.nutrition))))return false;}}}
   if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.nutrition!=null&&!validNutrition(r.nutrition)))return false;
   if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.requiredIngredients!==undefined&&(!Array.isArray(r.requiredIngredients)||r.requiredIngredients.length<1||r.requiredIngredients.length>60||!r.requiredIngredients.every(validIngredient)||r.requiredIngredients.length!==r.ingredients?.length||r.requiredIngredients.some((i,n)=>i.name!==r.ingredients[n]))))return false;
   for(const key of ['recipes','foods','shopping','stores'])if(!Array.isArray(data[key])||data[key].length>2000)return false;
@@ -40,7 +41,7 @@ function validData(data) {
   if(!data.recipes.every(x=>x&&typeof x.name==='string'&&Array.isArray(x.ingredients)&&x.ingredients.every(i=>typeof i==='string')&&Number.isFinite(x.time)&&['朝','昼','晩'].includes(x.meal)&&typeof x.img==='string'&&Number.isSafeInteger(x.id)&&(!x.url||/^https?:\/\//.test(x.url))&&(x.kcal===undefined||Number.isFinite(x.kcal))))return false;
   if(!data.shopping.every(x=>x&&typeof x.name==='string'&&typeof x.done==='boolean'&&(x.unit===undefined||(typeof x.unit==='string'&&x.unit.length<=100))&&(x.qty===undefined||(Number.isFinite(x.qty)&&x.qty>0&&x.qty<=999999))))return false;
   if(!data.stores.every(x=>x&&typeof x.name==='string'&&typeof x.url==='string'&&/^https?:\/\//.test(x.url)))return false;
-  return Object.values(data.plans).every(p=>Array.isArray(p)&&p.length===3&&p.every(id=>data.recipes.some(r=>r.id===id)));
+  return Object.values(data.plans).every(p=>validPlan(p,new Set(data.recipes.map(r=>r.id))));
 }
 async function api(request, env) {
   const url=new URL(request.url), path=url.pathname, db=env.DB;
@@ -112,9 +113,11 @@ async function api(request, env) {
     if(!env.IMAGES)return json({error:'画像用のR2が未設定です'},503);
     const prefix=user.id+'/';
     if(path==='/api/images'&&request.method==='GET'){
-      const cursor=url.searchParams.get('cursor')||undefined;
-      const list=await env.IMAGES.list({prefix,limit:100,cursor,include:['customMetadata']});
-      return json({images:list.objects.map(o=>({id:o.key.slice(prefix.length),name:o.customMetadata?.name||'画像',kind:o.customMetadata?.kind||'food',uploaded:o.uploaded,size:o.size})),cursor:list.truncated?list.cursor:null});
+      let anchor=null;const inputCursor=url.searchParams.get('cursor');if(inputCursor){try{anchor=JSON.parse(atob(inputCursor));if(!Number.isFinite(anchor.time)||!/^[a-f0-9-]{36}$/.test(anchor.id))throw Error();}catch{return json({error:'画像一覧を再読み込みしてください'},400);}}
+      const objects=[];let cursor;do{const page=await env.IMAGES.list({prefix,limit:1000,cursor,include:['customMetadata']});objects.push(...page.objects);cursor=page.truncated?page.cursor:undefined;}while(cursor);
+      const images=objects.map(o=>({id:o.key.slice(prefix.length),name:o.customMetadata?.name||'画像',kind:o.customMetadata?.kind||'food',uploaded:o.uploaded,size:o.size})).sort((a,b)=>new Date(b.uploaded)-new Date(a.uploaded)||b.id.localeCompare(a.id));
+      const filtered=anchor?images.filter(i=>new Date(i.uploaded).getTime()<anchor.time||(new Date(i.uploaded).getTime()===anchor.time&&i.id<anchor.id)):images;const selected=filtered.slice(0,100),last=selected.at(-1);
+      return json({images:selected,cursor:filtered.length>100?btoa(JSON.stringify({time:new Date(last.uploaded).getTime(),id:last.id})):null});
     }
     if(path==='/api/images'&&request.method==='POST'){
       const limit=5*1024*1024,type=request.headers.get('Content-Type')?.split(';')[0];
