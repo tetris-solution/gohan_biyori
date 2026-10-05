@@ -29,7 +29,7 @@ function validData(data) {
   if(!data||typeof data!=='object'||Array.isArray(data))return false;
   for(const key of ['recipes','foods','shopping','stores'])if(!Array.isArray(data[key])||data[key].length>2000)return false;
   if(!data.plans||typeof data.plans!=='object'||Array.isArray(data.plans)||Object.keys(data.plans).length>730)return false;
-  if(!data.foods.every(x=>x&&typeof x.name==='string'&&typeof x.qty==='string'&&typeof x.emoji==='string'))return false;
+  if(!data.foods.every(x=>x&&typeof x.name==='string'&&typeof x.qty==='string'&&typeof x.emoji==='string'&&(x.category===undefined||['野菜','果物','肉・魚','卵・乳製品','主食','その他'].includes(x.category))&&(x.expiryType===undefined||['best-before','use-by'].includes(x.expiryType))&&(x.expiryDate===undefined||x.expiryDate===''||(/^\d{4}-\d{2}-\d{2}$/.test(x.expiryDate)&&!Number.isNaN(Date.parse(x.expiryDate))&&new Date(x.expiryDate).toISOString().slice(0,10)===x.expiryDate))))return false;
   if(!data.recipes.every(x=>x&&typeof x.name==='string'&&Array.isArray(x.ingredients)&&x.ingredients.every(i=>typeof i==='string')&&Number.isFinite(x.time)&&['朝','昼','晩'].includes(x.meal)&&typeof x.img==='string'&&Number.isSafeInteger(x.id)&&(!x.url||/^https?:\/\//.test(x.url))&&(x.kcal===undefined||Number.isFinite(x.kcal))))return false;
   if(!data.shopping.every(x=>x&&typeof x.name==='string'&&typeof x.done==='boolean'&&(x.qty===undefined||(Number.isInteger(x.qty)&&x.qty>=1&&x.qty<=999))))return false;
   if(!data.stores.every(x=>x&&typeof x.name==='string'&&typeof x.url==='string'&&/^https?:\/\//.test(x.url)))return false;
