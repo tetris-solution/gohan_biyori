@@ -1,4 +1,4 @@
-# ごはんびより — Cloudflare版
+# マイ献立 — Cloudflare版
 
 料理献立アプリをCloudflare Workers + D1で配信する構成。既存の食材保存方法ページも含みます。
 
