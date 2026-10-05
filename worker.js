@@ -31,7 +31,7 @@ function validData(data) {
   if(!data.plans||typeof data.plans!=='object'||Array.isArray(data.plans)||Object.keys(data.plans).length>730)return false;
   if(!data.foods.every(x=>x&&typeof x.name==='string'&&typeof x.qty==='string'&&typeof x.emoji==='string'))return false;
   if(!data.recipes.every(x=>x&&typeof x.name==='string'&&Array.isArray(x.ingredients)&&x.ingredients.every(i=>typeof i==='string')&&Number.isFinite(x.time)&&['朝','昼','晩'].includes(x.meal)&&typeof x.img==='string'&&Number.isSafeInteger(x.id)&&(!x.url||/^https?:\/\//.test(x.url))&&(x.kcal===undefined||Number.isFinite(x.kcal))))return false;
-  if(!data.shopping.every(x=>x&&typeof x.name==='string'&&typeof x.done==='boolean'))return false;
+  if(!data.shopping.every(x=>x&&typeof x.name==='string'&&typeof x.done==='boolean'&&(x.qty===undefined||(Number.isInteger(x.qty)&&x.qty>=1&&x.qty<=999))))return false;
   if(!data.stores.every(x=>x&&typeof x.name==='string'&&typeof x.url==='string'&&/^https?:\/\//.test(x.url)))return false;
   return Object.values(data.plans).every(p=>Array.isArray(p)&&p.length===3&&p.every(id=>data.recipes.some(r=>r.id===id)));
 }
