@@ -36,10 +36,10 @@ function validData(data) {
 async function api(request, env) {
   const url=new URL(request.url), path=url.pathname, db=env.DB;
   if(!db)return json({error:'DBがまだ設定されていません'},503);
-  if(!['GET','POST','PUT'].includes(request.method))return json({error:'許可されていない操作です'},405);
+  if(!['GET','POST','PUT','DELETE'].includes(request.method))return json({error:'許可されていない操作です'},405);
   if(request.method!=='GET'){
     if(request.headers.get('Origin')!==url.origin)return json({error:'許可されていないアクセスです'},403);
-    if(!request.headers.get('Content-Type')?.startsWith('application/json'))return json({error:'JSONで送信してください'},415);
+    if(!(path==='/api/images'&&request.method==='POST')&&!request.headers.get('Content-Type')?.startsWith('application/json'))return json({error:'JSONで送信してください'},415);
   }
   if(path==='/api/signup'||path==='/api/login'){
     if(request.method!=='POST')return json({error:'POSTが必要です'},405);
@@ -67,6 +67,38 @@ async function api(request, env) {
   const user=await currentUser(request,db);
   if(!user)return json({error:'ログインしてください'},401);
   if(path==='/api/me'&&request.method==='GET')return json({user});
+  if(path==='/api/images'||path.startsWith('/api/images/')){
+    if(!env.IMAGES)return json({error:'画像用のR2が未設定です'},503);
+    const prefix=user.id+'/';
+    if(path==='/api/images'&&request.method==='GET'){
+      const cursor=url.searchParams.get('cursor')||undefined;
+      const list=await env.IMAGES.list({prefix,limit:100,cursor,include:['customMetadata']});
+      return json({images:list.objects.map(o=>({id:o.key.slice(prefix.length),name:o.customMetadata?.name||'画像',kind:o.customMetadata?.kind||'food',uploaded:o.uploaded,size:o.size})),cursor:list.truncated?list.cursor:null});
+    }
+    if(path==='/api/images'&&request.method==='POST'){
+      const limit=5*1024*1024,type=request.headers.get('Content-Type')?.split(';')[0];
+      if(!['image/jpeg','image/png','image/webp'].includes(type))return json({error:'JPEG・PNG・WebP画像を選んでください'},415);
+      if(Number(request.headers.get('Content-Length'))>limit)return json({error:'画像は5MB以下にしてください'},413);
+      const reader=request.body?.getReader();if(!reader)return json({error:'画像を選んでください'},400);
+      const chunks=[];let size=0;
+      while(true){const {value,done}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();return json({error:'画像は5MB以下にしてください'},413)}chunks.push(value)}
+      const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length}
+      const valid=(type==='image/jpeg'&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)||(type==='image/png'&&[137,80,78,71,13,10,26,10].every((b,i)=>bytes[i]===b))||(type==='image/webp'&&new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP');
+      if(!valid)return json({error:'画像形式を確認してください'},400);
+      let name;try{name=decodeURIComponent(request.headers.get('X-Image-Name')||'画像').slice(0,120)}catch{return json({error:'ファイル名を確認してください'},400)}
+      const kind=request.headers.get('X-Image-Kind')||'food';if(!['food','recipe','receipt'].includes(kind))return json({error:'画像の分類を確認してください'},400);
+      const id=crypto.randomUUID();await env.IMAGES.put(prefix+id,bytes,{httpMetadata:{contentType:type},customMetadata:{name,kind}});
+      return json({id,name,kind},201);
+    }
+    const id=path.slice('/api/images/'.length);if(!/^[a-f0-9-]{36}$/.test(id))return json({error:'画像がありません'},404);
+    if(request.method==='GET'){
+      const image=await env.IMAGES.get(prefix+id);if(!image)return json({error:'画像がありません'},404);
+      return new Response(image.body,{headers:{'Content-Type':image.httpMetadata?.contentType||'application/octet-stream','Cache-Control':'private, no-store'}});
+    }
+    if(request.method==='DELETE'){await env.IMAGES.delete(prefix+id);return json({ok:true})}
+    return json({error:'許可されていない操作です'},405);
+  }
+
   if(path==='/api/logout'&&request.method==='POST'){
     const token=request.headers.get('Cookie')?.split(';').map(s=>s.trim()).find(s=>s.startsWith(cookieName+'='))?.slice(cookieName.length+1);
     if(token)await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(token)).run();

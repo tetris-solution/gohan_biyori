@@ -40,4 +40,10 @@ node scripts/provision.mjs
 
 ## 公開前の状態
 
-コードとローカルAPIテストは準備済み。Cloudflare資格情報とGitHub新規リポジトリ作成権限が未提供のため、Cloudflareへのデプロイ・GitHubへのpushは未完了です。既存Sites版はこのDBに接続していません。
+コードとローカルAPIテストは準備済みで、GitHubに保存しています。Cloudflare実環境の公開・検証は未完了です。既存Sites版はこのDBに接続していません。
+
+## 画像保存（R2）
+
+Cloudflare R2で非公開バケット `gohan-biyori-images` を作成します。公開URL・r2.dev公開・CORSは不要です。Workerの `IMAGES` バインディングに接続し、ログイン本人のみ取得できるAPI経由で配信します。料理・食材・レシートをJPEG/PNG/WebPで1枚5MBまで保存可能。R2保存・一覧・削除は実装済み、自動解析は未接続です。
+
+現在のwrangler.jsoncにはユーザーが作成したD1のIDとR2バケット名を設定済みです。CloudflareのGit連携でのDeploy commandは `npx wrangler d1 migrations apply gohan-biyori-db --remote && npx wrangler deploy` としてください。先にR2バケットを作成し、CloudflareビルドのAPIトークンがD1のマイグレーションとR2バインディングに必要な権限を持つことを確認します。

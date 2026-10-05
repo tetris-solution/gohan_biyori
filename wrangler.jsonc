@@ -2,6 +2,24 @@
   "name": "gohan-biyori",
   "main": "worker.js",
   "compatibility_date": "2026-10-05",
-  "assets": {"directory": "./public", "binding": "ASSETS", "run_worker_first": true},
-  "d1_databases": [{"binding": "DB", "database_name": "gohan-biyori-db", "database_id": "REPLACE_AFTER_DATABASE_CREATION", "migrations_dir": "migrations"}]
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gohan-biyori-db",
+      "database_id": "f59cbe92-4b14-4d5c-b1a1-123ea37cd9a8",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "account_id": "4f5ebce99a017909a775986f5bb24a25",
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "gohan-biyori-images"
+    }
+  ]
 }
