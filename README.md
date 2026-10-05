@@ -47,3 +47,17 @@ node scripts/provision.mjs
 Cloudflare R2で非公開バケット `gohan-biyori-images` を作成します。公開URL・r2.dev公開・CORSは不要です。Workerの `IMAGES` バインディングに接続し、ログイン本人のみ取得できるAPI経由で配信します。料理・食材・レシートをJPEG/PNG/WebPで1枚5MBまで保存可能。R2保存・一覧・削除は実装済み、自動解析は未接続です。
 
 現在のwrangler.jsoncにはユーザーが作成したD1のIDとR2バケット名を設定済みです。CloudflareのGit連携でのDeploy commandは `npx wrangler d1 migrations apply gohan-biyori-db --remote && npx wrangler deploy` としてください。先にR2バケットを作成し、CloudflareビルドのAPIトークンがD1のマイグレーションとR2バインディングに必要な権限を持つことを確認します。
+
+## AI献立（Workers AI）
+
+WranglerのAIバインディング `AI` を使い、`@cf/meta/llama-3.3-70b-instruct-fp8-fast` に食材・数量・気分・人数・調理時間・避けたい食材を渡します。朝昼晩の献立と分量・手順をプレビューし、ユーザーが保存したときにレシピと献立をD1に保存します。不足食材は既存の買い物リスト追加を利用できます。写真はイメージ、栄養価は生成しません。写真のOCRは別機能で未接続です。
+
+ログイン必須、1ユーザー1日10試行（日本時間、失敗も含む）。AI利用にはCloudflareの利用条件・モデルの条件・料金が適用されます。OpenAIのAPIキーは使いません。Workers AIを利用できるアカウントで、Cloudflareのビルド／デプロイ用トークンの権限も確認してください。
+
+デプロイコマンドは同じです。`0002_ai_usage.sql` のマイグレーションも実行します。
+
+```sh
+npx wrangler d1 migrations apply gohan-biyori-db --remote && npx wrangler deploy
+```
+
+ローカルテストで認証・入力・回答形式・回数上限を検証済みです。Cloudflareの実AI推論・実DBへの保存はデプロイ後に検証が必要です。アレルギー対応はAI出力のみで保証せず、利用者が材料・調味料表示を確認してください。
