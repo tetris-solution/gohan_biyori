@@ -1,4 +1,6 @@
 import {validProfile,calculateTargets,validNutrition,totalNutrition,assessNutrition} from './public/src/nutrition.js';
+import {validIngredient} from './public/src/ingredients.js';
+import {publicUrl,fetchRecipePage,pageRecipe,extractRecipe} from './recipe-import.js';
 const schemaStatements=["CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL)", "CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)", "CREATE TABLE IF NOT EXISTS user_data (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, data TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS auth_attempts (bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS ai_usage (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, day))"];
 async function initializeSchema(db){await db.batch(schemaStatements.map(sql=>db.prepare(sql)));}
 const encoder = new TextEncoder();
@@ -31,11 +33,12 @@ function validData(data) {
   if(data.nutritionProfile!=null&&!validProfile(data.nutritionProfile))return false;
   if(data.mealLog!==undefined){if(!data.mealLog||typeof data.mealLog!=='object'||Array.isArray(data.mealLog)||Object.keys(data.mealLog).length>730)return false;for(const [date,entries] of Object.entries(data.mealLog)){if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!entries||typeof entries!=='object'||Array.isArray(entries))return false;for(const [slot,log] of Object.entries(entries)){if(!['朝','昼','晩'].includes(slot)||!log||!Number.isSafeInteger(log.recipeId)||typeof log.name!=='string'||(log.nutrition!=null&&!validNutrition(log.nutrition)))return false;}}}
   if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.nutrition!=null&&!validNutrition(r.nutrition)))return false;
+  if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.requiredIngredients!==undefined&&(!Array.isArray(r.requiredIngredients)||r.requiredIngredients.length<1||r.requiredIngredients.length>60||!r.requiredIngredients.every(validIngredient)||r.requiredIngredients.length!==r.ingredients?.length||r.requiredIngredients.some((i,n)=>i.name!==r.ingredients[n]))))return false;
   for(const key of ['recipes','foods','shopping','stores'])if(!Array.isArray(data[key])||data[key].length>2000)return false;
   if(!data.plans||typeof data.plans!=='object'||Array.isArray(data.plans)||Object.keys(data.plans).length>730)return false;
-  if(!data.foods.every(x=>x&&typeof x.name==='string'&&typeof x.qty==='string'&&typeof x.emoji==='string'&&(x.category===undefined||['野菜','果物','肉・魚','卵・乳製品','主食','その他'].includes(x.category))&&(x.expiryType===undefined||['best-before','use-by'].includes(x.expiryType))&&(x.expiryDate===undefined||x.expiryDate===''||(/^\d{4}-\d{2}-\d{2}$/.test(x.expiryDate)&&!Number.isNaN(Date.parse(x.expiryDate))&&new Date(x.expiryDate).toISOString().slice(0,10)===x.expiryDate))))return false;
+  if(!data.foods.every(x=>x&&typeof x.name==='string'&&typeof x.qty==='string'&&typeof x.emoji==='string'&&(x.location===undefined||['','fridge','freezer','pantry'].includes(x.location))&&(x.category===undefined||['野菜','果物','肉・魚','卵・乳製品','主食','その他'].includes(x.category))&&(x.expiryType===undefined||['best-before','use-by'].includes(x.expiryType))&&(x.expiryDate===undefined||x.expiryDate===''||(/^\d{4}-\d{2}-\d{2}$/.test(x.expiryDate)&&!Number.isNaN(Date.parse(x.expiryDate))&&new Date(x.expiryDate).toISOString().slice(0,10)===x.expiryDate))))return false;
   if(!data.recipes.every(x=>x&&typeof x.name==='string'&&Array.isArray(x.ingredients)&&x.ingredients.every(i=>typeof i==='string')&&Number.isFinite(x.time)&&['朝','昼','晩'].includes(x.meal)&&typeof x.img==='string'&&Number.isSafeInteger(x.id)&&(!x.url||/^https?:\/\//.test(x.url))&&(x.kcal===undefined||Number.isFinite(x.kcal))))return false;
-  if(!data.shopping.every(x=>x&&typeof x.name==='string'&&typeof x.done==='boolean'&&(x.unit===undefined||(typeof x.unit==='string'&&x.unit.length<=100))&&(x.qty===undefined||(Number.isInteger(x.qty)&&x.qty>=1&&x.qty<=999))))return false;
+  if(!data.shopping.every(x=>x&&typeof x.name==='string'&&typeof x.done==='boolean'&&(x.unit===undefined||(typeof x.unit==='string'&&x.unit.length<=100))&&(x.qty===undefined||(Number.isFinite(x.qty)&&x.qty>0&&x.qty<=999999))))return false;
   if(!data.stores.every(x=>x&&typeof x.name==='string'&&typeof x.url==='string'&&/^https?:\/\//.test(x.url)))return false;
   return Object.values(data.plans).every(p=>Array.isArray(p)&&p.length===3&&p.every(id=>data.recipes.some(r=>r.id===id)));
 }
@@ -73,6 +76,14 @@ async function api(request, env) {
   const user=await currentUser(request,db);
   if(!user)return json({error:'ログインしてください'},401);
   if(path==='/api/me'&&request.method==='GET')return json({user});
+  if(path==='/api/recipes/import'&&request.method==='POST'){
+    if(!env.AI)return json({error:'Workers AIの設定を確認してください'},503);
+    const input=await body(request,4096);if(!['url','image'].includes(input.kind))return json({error:'登録方法を選択してください'},400);
+    let image;if(input.kind==='url'){try{publicUrl(input.url)}catch(e){return json({error:e.message},400)}}else{if(!/^[a-f0-9-]{36}$/.test(input.imageId||''))return json({error:'画像を選択してください'},400);if(!env.IMAGES)return json({error:'画像保存の設定を確認してください'},503);image=await env.IMAGES.get(user.id+'/'+input.imageId);if(!image||!['image/jpeg','image/png','image/webp'].includes(image.httpMetadata?.contentType))return json({error:'画像が見つかりません'},404);if(image.size>5*1024*1024)return json({error:'画像は5MB以下にしてください'},413);}
+    const day=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});const usage=await db.prepare('INSERT INTO ai_usage(user_id,day,attempts) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET attempts=attempts+1 WHERE attempts<10 RETURNING attempts').bind(user.id,day).first();if(!usage)return json({error:'AI解析・献立提案は合計1日10回までです'},429);
+    let page,sourceUrl='';try{if(input.kind==='url'){const fetched=await fetchRecipePage(input.url);sourceUrl=fetched.url;page=pageRecipe(fetched.html,sourceUrl);}}catch(e){return json({error:e.message.includes('URL')||e.message.includes('ページ')||e.message.includes('サイト')?e.message:'サイトを取得できませんでした。画像か手入力で登録してください'},422);}
+    try{const result=await extractRecipe(env,{page,image});return json({recipe:{...result,...(page?{name:page.name||result.name,description:page.description||result.description,img:page.img,url:sourceUrl,sourceTitle:page.sourceTitle,sourceType:'url'}:{img:'/api/images/'+input.imageId,url:'',sourceTitle:'アップロード画像',sourceType:'image'})},remaining:10-usage.attempts});}catch(e){console.error('Recipe extraction failed',e.message);return json({error:'レシピを解析できませんでした。鮮明な材料の画像か手入力で登録してください。失敗も回数に含まれます'},502);}
+  }
   if(path==='/api/ai/plan'&&request.method==='POST'){
     if(!env.AI)return json({error:'Workers AIが未設定です。AIバインディングを確認してください'},503);
     const input=await body(request,20000);
@@ -151,6 +162,6 @@ export default {async fetch(request, env){
   let response;
   const isApi=new URL(request.url).pathname.startsWith('/api/');const retryRequest=isApi?request.clone():null;
   try{try{response=isApi?await api(request,env):await env.ASSETS.fetch(request)}catch(error){if(isApi&&env.DB&&/no such table/i.test(error.message)){await initializeSchema(env.DB);response=await api(retryRequest,env)}else throw error}}catch(e){console.error('Request failed',new URL(request.url).pathname,e.message);response=json({error:e.message==='TOO_LARGE'?'データが大きすぎます':e.message==='BAD_BODY'?'送信データを確認してください':'処理に失敗しました。時間をおいて再試行してください'},e.message==='TOO_LARGE'?413:e.message==='BAD_BODY'?400:500)}
-  const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://images.unsplash.com data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   return new Response(response.body,{status:response.status,headers});
 }};
