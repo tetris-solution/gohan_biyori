@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS creator_profiles (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, display_name TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '', category TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS creator_follows (follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, creator_id TEXT NOT NULL REFERENCES creator_profiles(user_id) ON DELETE CASCADE, created_at INTEGER NOT NULL, PRIMARY KEY(follower_id,creator_id));
+CREATE INDEX IF NOT EXISTS creator_follows_creator ON creator_follows(creator_id);
+CREATE TABLE IF NOT EXISTS creator_recipes (creator_id TEXT NOT NULL REFERENCES creator_profiles(user_id) ON DELETE CASCADE, recipe_id INTEGER NOT NULL, recipe TEXT NOT NULL, access_level TEXT NOT NULL DEFAULT 'free' CHECK(access_level='free'), published_at INTEGER NOT NULL, PRIMARY KEY(creator_id,recipe_id));
