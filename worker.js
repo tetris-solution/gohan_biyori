@@ -1,3 +1,4 @@
+import {removeDemoRecipes} from './public/src/recipe-maintenance.js';
 import {creatorSchema,creatorsApi} from './creators.js';
 import {videoFromPage} from './recipe-video.js';
 import {normalizeVideo,validVideo} from './public/src/recipe-video.js';
@@ -37,6 +38,7 @@ function validData(data) {
   if(!data||typeof data!=='object'||Array.isArray(data))return false;
   if(data.nutritionProfile!=null&&!validProfile(data.nutritionProfile))return false;
   if(data.mealLog!==undefined){if(!data.mealLog||typeof data.mealLog!=='object'||Array.isArray(data.mealLog)||Object.keys(data.mealLog).length>730)return false;for(const [date,entries] of Object.entries(data.mealLog)){if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!entries||typeof entries!=='object'||Array.isArray(entries)||Object.keys(entries).some(k=>!['朝','昼','晩'].includes(k)))return false;for(const [slot,value] of Object.entries(entries)){const logs=Array.isArray(value)?value:[value];if(logs.length>100||new Set(logs.map(l=>l?.recipeId)).size!==logs.length||logs.some(log=>!log||!Number.isSafeInteger(log.recipeId)||typeof log.name!=='string'||(log.nutrition!=null&&!validNutrition(log.nutrition))))return false;}}}
+  if(Array.isArray(data.recipes)&&data.recipes.some(r=>r.archived!==undefined&&typeof r.archived!=='boolean'))return false;
   if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.video!=null&&!validVideo(r.video)))return false;
   if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.nutrition!=null&&!validNutrition(r.nutrition)))return false;
   if(Array.isArray(data.recipes)&&data.recipes.some(r=>r?.requiredIngredients!==undefined&&(!Array.isArray(r.requiredIngredients)||r.requiredIngredients.length<1||r.requiredIngredients.length>60||!r.requiredIngredients.every(validIngredient)||r.requiredIngredients.length!==r.ingredients?.length||r.requiredIngredients.some((i,n)=>i.name!==r.ingredients[n]))))return false;
@@ -200,12 +202,14 @@ async function api(request, env) {
     return json({ok:true},200,{'Set-Cookie':`${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`});
   }
   if(path==='/api/data'&&request.method==='GET'){
-    const row=await db.prepare('SELECT data,version FROM user_data WHERE user_id=?').bind(user.id).first();
-    return json({data:row?JSON.parse(row.data):null,version:row?.version||0});
+    for(let attempt=0;attempt<3;attempt++){
+      const row=await db.prepare('SELECT data,version FROM user_data WHERE user_id=?').bind(user.id).first();if(!row)return json({data:null,version:0});const cleaned=removeDemoRecipes(JSON.parse(row.data));if(!cleaned.removed.length)return json({data:cleaned.data,version:row.version});
+      const updated=await db.prepare('UPDATE user_data SET data=?,version=version+1,updated_at=? WHERE user_id=? AND version=? RETURNING version').bind(JSON.stringify(cleaned.data),Date.now(),user.id,row.version).first();if(updated)return json({data:cleaned.data,version:updated.version});
+    }return json({error:'データが更新されています。もう一度読み込んでください'},409);
   }
   if(path==='/api/data'&&request.method==='PUT'){
     const input=await body(request);if(!validData(input.data)||!Number.isSafeInteger(input.version)||input.version<0)return json({error:'保存データの形式が正しくありません'},400);
-    const payload=JSON.stringify(input.data);
+    const payload=JSON.stringify(removeDemoRecipes(input.data).data);
     const result=await db.prepare('INSERT INTO user_data(user_id,data,version,updated_at) VALUES(?,?,1,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,version=user_data.version+1,updated_at=excluded.updated_at WHERE user_data.version=? RETURNING version').bind(user.id,payload,Date.now(),input.version).first();
     if(!result)return json({error:'別の端末で更新されています。未保存の内容を控えてから再読み込みしてください'},409);
     return json({version:result.version});

@@ -1,3 +1,4 @@
+import {isDemoRecipe} from './public/src/recipe-maintenance.js';
 export const creatorSchema=["CREATE TABLE IF NOT EXISTS creator_profiles (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, display_name TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '', category TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)","CREATE TABLE IF NOT EXISTS creator_follows (follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, creator_id TEXT NOT NULL REFERENCES creator_profiles(user_id) ON DELETE CASCADE, created_at INTEGER NOT NULL, PRIMARY KEY(follower_id,creator_id))","CREATE INDEX IF NOT EXISTS creator_follows_creator ON creator_follows(creator_id)","CREATE TABLE IF NOT EXISTS creator_recipes (creator_id TEXT NOT NULL REFERENCES creator_profiles(user_id) ON DELETE CASCADE, recipe_id INTEGER NOT NULL, recipe TEXT NOT NULL, access_level TEXT NOT NULL DEFAULT 'free' CHECK(access_level='free'), published_at INTEGER NOT NULL, PRIMARY KEY(creator_id,recipe_id))"];
 export const creatorCategories=['和食','洋食','中華','ヘルシー','お菓子','時短','作り置き','その他'];
 const cardSql=`SELECT p.user_id AS id,p.display_name AS name,p.bio,p.category,p.enabled, (SELECT COUNT(*) FROM creator_follows WHERE creator_id=p.user_id) AS followers,(SELECT COUNT(*) FROM creator_recipes WHERE creator_id=p.user_id) AS recipeCount,EXISTS(SELECT 1 FROM creator_follows WHERE creator_id=p.user_id AND follower_id=?) AS following FROM creator_profiles p`;
@@ -8,6 +9,8 @@ function publishedRecipe(r,id){
 }
 export async function creatorsApi(request,env,user,{body,json}){
  const url=new URL(request.url),path=url.pathname,db=env.DB,now=Date.now();
+ const seeded=await db.prepare('SELECT creator_id,recipe_id,recipe FROM creator_recipes WHERE recipe_id BETWEEN 1 AND 6').all();const demos=seeded.results.filter(r=>isDemoRecipe(JSON.parse(r.recipe)));if(demos.length)await db.batch(demos.map(r=>db.prepare('DELETE FROM creator_recipes WHERE creator_id=? AND recipe_id=? AND recipe=?').bind(r.creator_id,r.recipe_id,r.recipe)));
+
  if(path==='/api/creator/profile'){
   if(request.method==='GET'){const profile=await db.prepare(cardSql+' WHERE p.user_id=?').bind(user.id,user.id).first();const recipes=await db.prepare('SELECT recipe_id FROM creator_recipes WHERE creator_id=? ORDER BY published_at DESC').bind(user.id).all();return json({profile:profile?card(profile):null,recipeIds:recipes.results.map(r=>r.recipe_id)});}
   if(request.method==='PUT'){
