@@ -69,3 +69,5 @@ form input[type=file]{min-width:0;width:100%;max-width:100%;overflow:hidden}
 :root{--button-font-size:14px}
 button:not(.close):not(.meal-remove):not(.pantry-remove):not(.shopping-remove):not(.quantity-stepper button):not(.ingredient-edit-head button),a.primary,a.outline,a.text-button{font-size:var(--button-font-size)!important}
 .searchbar .storage-owned input[type=checkbox]{width:18px;min-width:18px;max-width:18px;flex:0 0 18px}
+
+.meal-eaten-choice{display:flex;align-items:center;gap:10px;line-height:1.6}.meal-eaten-choice input[type=checkbox]{width:18px;flex:0 0 18px;accent-color:var(--green)}.meal-nutrition-fields{display:flex;flex-direction:column;min-width:0}.meal-nutrition-fields input{width:100%;min-width:0}
