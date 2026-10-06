@@ -42,3 +42,9 @@ test('account changes require current password, preserve data and revoke old ses
   assert.deepEqual((await (await call(db,'data','GET',undefined,freshCookie)).json()).data,sample);
   assert.equal((await call(db,'login','POST',{username:'renamed_user',password:oldPassword})).status,401);assert.equal((await call(db,'login','POST',{username:'renamed_user',password:newPassword})).status,200);
 });
+test('individual meal nutrition is authenticated and validated before returning estimates',async()=>{
+ const db=database(),signup=await call(db,'signup','POST',{username:'nutrition_import',password:'long nutrition password'}),cookie=signup.headers.get('Set-Cookie').split(';')[0];let seen,invalid=false;
+ const nutrition={kcal:500,protein:25,fat:15,carbs:66,fiber:8,calcium:260,potassium:1000,salt:1.5};const env={DB:db,AI:{async run(model,input){seen=JSON.parse(input.messages[1].content);return {response:{nutrition:invalid?{...nutrition,protein:-5}:nutrition,note:'分量不明の材料は1人前の標準量で推定'}};}}};
+ const input={name:'トマトと卵',ingredients:[{name:'卵',quantity:null,unit:'',amountText:''}],servings:1};const run=(data=input,auth=cookie)=>worker.fetch(new Request(base+'/api/ai/nutrition',{method:'POST',headers:{Origin:base,'Content-Type':'application/json',Cookie:auth},body:JSON.stringify(data)}),env);
+ assert.equal((await run(input,'')).status,401);assert.equal((await run({...input,servings:0})).status,400);const response=await run();assert.equal(response.status,200);assert.deepEqual((await response.json()).nutrition,nutrition);assert.equal(seen.servings,1);assert.equal(seen.ingredients[0].quantity,null);invalid=true;assert.equal((await run()).status,502);
+});
