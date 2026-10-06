@@ -1,0 +1,16 @@
+const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const paths={count:'<circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/>',pack:'<path d="M4 7h16v14H4zM4 7l3-4h10l3 4M8 11h8"/>',weight:'<path d="M4 8h16l2 13H2z"/><circle cx="12" cy="5" r="3"/>',liquid:'<path d="M12 2S4 11 4 15a8 8 0 0 0 16 0c0-4-8-13-8-13Z"/>',fridge:'<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M5 10h14M8 5v2m0 7v3"/>',snow:'<path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M8 4l4 3 4-3M8 20l4-3 4 3M3 11l5-1-1-5M21 13l-5 1 1 5M3 13l5 1-1 5M21 11l-5-1 1-5"/>',store:'<path d="M3 10h18v11H3zM2 10l3-7h14l3 7M9 21v-7h6v7"/>',calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6m10-6v6M3 11h18m-11 5 2 2 4-4"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',unset:'<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>'};
+const icon=k=>`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[k]||paths.count}</svg>`;
+export const locationOptions=[['','未設定','unset'],['fridge','冷蔵庫','fridge'],['freezer','冷凍庫','snow'],['pantry','常温','store']];
+export const expiryOptions=[['best-before','賞味期限','calendar'],['use-by','消費期限','clock']];
+export function choiceField(id,name,label,value,options,attrs=''){
+  return `<div class="choice-field"><span class="choice-label" id="${id}-label">${escape(label)}</span><input type="hidden" id="${id}" name="${name}" value="${escape(value)}" ${attrs}><div class="choice-buttons" role="group" aria-labelledby="${id}-label">${options.map(([v,text,i])=>`<button type="button" data-choice-target="${id}" data-choice-value="${escape(v)}" aria-pressed="${v===value}" class="choice-button ${v===value?'selected':''}">${icon(i)}<span>${escape(text)}</span></button>`).join('')}</div></div>`;
+}
+export function unitField(id,name,value='',attrs=''){
+  const options=[['','なし','unset'],...['個','本','枚','袋','パック','束'].map(u=>[u,u,['袋','パック'].includes(u)?'pack':'count']),...['g','kg'].map(u=>[u,u,'weight']),...['ml','L'].map(u=>[u,u,'liquid'])];
+  if(value&&!options.some(o=>o[0]===value))options.push([value,value,'count']);
+  return choiceField(id,name,'単位',value,options,attrs)+`<details class="custom-unit"><summary>その他の単位を入力</summary><label for="${id}-custom">単位（自由入力）</label><input id="${id}-custom" data-choice-custom="${id}" type="text" maxlength="30" placeholder="例：カップ"></details>`;
+}
+function setChoice(input,value){input.value=value;document.querySelectorAll('[data-choice-target]').forEach(b=>{if(b.dataset.choiceTarget===input.id){const selected=b.dataset.choiceValue===value;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}});input.dispatchEvent(new Event('change',{bubbles:true}));}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-choice-target]');if(!b)return;const input=document.getElementById(b.dataset.choiceTarget);if(input)setChoice(input,b.dataset.choiceValue);});
+document.addEventListener('input',e=>{if(e.target.dataset.choiceCustom){const input=document.getElementById(e.target.dataset.choiceCustom);if(input)setChoice(input,e.target.value.trim());}});
