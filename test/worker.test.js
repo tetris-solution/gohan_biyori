@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import worker from '../worker.js';
-function database(){const sql=new DatabaseSync(':memory:');sql.exec(readFileSync(new URL('../migrations/0002_ai_usage.sql',import.meta.url),'utf8'));sql.exec(readFileSync(new URL('../migrations/0001_accounts.sql',import.meta.url),'utf8'));return {async batch(statements){for(const statement of statements)sql.exec(statement.query)},prepare(query){return {query,bind(...params){return {async first(){return sql.prepare(query).get(...params)||null},async run(){return sql.prepare(query).run(...params)}}}}}}}
+function database(){const sql=new DatabaseSync(':memory:');sql.exec(readFileSync(new URL('../migrations/0002_ai_usage.sql',import.meta.url),'utf8'));sql.exec(readFileSync(new URL('../migrations/0001_accounts.sql',import.meta.url),'utf8'));const prepare=(query,params=[])=>({query,params,bind(...p){return prepare(query,p)},async first(){return sql.prepare(query).get(...params)||null},async run(){const result=sql.prepare(query).run(...params);return {meta:{changes:Number(result.changes)}}}});return {prepare,async batch(statements){sql.exec('BEGIN');try{const results=[];for(const s of statements)results.push(await s.run());sql.exec('COMMIT');return results;}catch(e){sql.exec('ROLLBACK');throw e;}}};}
 const sample={recipes:[{id:1,name:'卵',ingredients:['卵'],time:10,meal:'朝',img:'https://images.unsplash.com/a'}],foods:[],plans:{},shopping:[],stores:[]};
 const base='https://konade.example';
 test('multi-dish plans and multiple completion snapshots persist with legacy compatibility',async()=>{const db=database();const signup=await call(db,'signup','POST',{username:'multi_meal',password:'a long secure password'}),cookie=signup.headers.get('Set-Cookie').split(';')[0];const recipes=[1,2,3,4].map(id=>({...sample.recipes[0],id,name:'料理'+id}));const data={...sample,recipes,plans:{'2026-10-06':{'朝':[1,4],'昼':[2],'晩':[3]}},mealLog:{'2026-10-06':{'朝':[{recipeId:1,name:'料理1',nutrition:null},{recipeId:4,name:'料理4',nutrition:null}]},'2026-10-05':{'朝':{recipeId:1,name:'料理1',nutrition:null}}}};assert.equal((await call(db,'data','PUT',{data,version:0},cookie)).status,200);const saved=(await (await call(db,'data','GET',undefined,cookie)).json()).data;assert.deepEqual(saved.plans['2026-10-06']['朝'],[1,4]);assert.equal(saved.mealLog['2026-10-06']['朝'].length,2);data.plans['2026-10-06']['朝']=[1,99];assert.equal((await call(db,'data','PUT',{data,version:1},cookie)).status,400);});
@@ -26,4 +26,19 @@ test('food photo analysis is private, draft-only and uses shared AI allowance',a
   const first=await run();assert.equal(first.status,200);assert.equal((await first.json()).foods[0].quantity,2);
   assert.equal((await (await call(db,'data','GET',undefined,cookie)).json()).data,null);
   for(let i=0;i<9;i++)assert.equal((await run()).status,200);assert.equal((await run()).status,429);assert.equal(calls,10);
+});
+test('account changes require current password, preserve data and revoke old sessions',async()=>{
+  const db=database(),oldPassword='original account password',newPassword='new account password value';const signup=await call(db,'signup','POST',{username:'account_user',password:oldPassword}),cookie=signup.headers.get('Set-Cookie').split(';')[0],id=(await signup.json()).user.id;
+  await call(db,'data','PUT',{data:sample,version:0},cookie);await call(db,'signup','POST',{username:'occupied_user',password:oldPassword});
+  assert.equal((await call(db,'account','PUT',{username:'other_user',currentPassword:oldPassword})).status,401);
+  assert.equal((await call(db,'account','PUT',{username:'other_user',currentPassword:'wrong password'},cookie)).status,403);
+  assert.equal((await call(db,'account','PUT',{username:'occupied_user',currentPassword:oldPassword},cookie)).status,409);
+  const renamed=await call(db,'account','PUT',{username:'RENAMED_USER',currentPassword:oldPassword},cookie);assert.equal(renamed.status,200);assert.equal((await renamed.json()).user.username,'renamed_user');
+  assert.equal((await call(db,'login','POST',{username:'account_user',password:oldPassword})).status,401);
+  const second=await call(db,'login','POST',{username:'renamed_user',password:oldPassword}),otherCookie=second.headers.get('Set-Cookie').split(';')[0];
+  assert.equal((await call(db,'account','PUT',{newPassword:'short',currentPassword:oldPassword},cookie)).status,400);
+  const changed=await call(db,'account','PUT',{newPassword,currentPassword:oldPassword},cookie);assert.equal(changed.status,200);assert.equal((await changed.json()).user.id,id);const freshCookie=changed.headers.get('Set-Cookie').split(';')[0];
+  assert.equal((await call(db,'me','GET',undefined,cookie)).status,401);assert.equal((await call(db,'me','GET',undefined,otherCookie)).status,401);assert.equal((await call(db,'me','GET',undefined,freshCookie)).status,200);
+  assert.deepEqual((await (await call(db,'data','GET',undefined,freshCookie)).json()).data,sample);
+  assert.equal((await call(db,'login','POST',{username:'renamed_user',password:oldPassword})).status,401);assert.equal((await call(db,'login','POST',{username:'renamed_user',password:newPassword})).status,200);
 });

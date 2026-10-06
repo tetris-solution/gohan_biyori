@@ -78,6 +78,29 @@ async function api(request, env) {
   const user=await currentUser(request,db);
   if(!user)return json({error:'ログインしてください'},401);
   if(path==='/api/me'&&request.method==='GET')return json({user});
+  if(path==='/api/account'&&request.method==='PUT'){
+    const input=await body(request,4096),username=typeof input.username==='string'?input.username.trim().toLowerCase():user.username,newPassword=input.newPassword||'';
+    if(!/^[a-z0-9_-]{3,40}$/.test(username)||typeof input.currentPassword!=='string'||input.currentPassword.length<12||input.currentPassword.length>128||typeof newPassword!=='string'||(newPassword&&(newPassword.length<12||newPassword.length>128)))return json({error:'ユーザー名は英数字・_・-で3〜40文字、パスワードは12〜128文字にしてください'},400);
+    const now=Date.now(),bucket=await hash('account:'+user.id+':'+Math.floor(now/600000));
+    await db.prepare('DELETE FROM auth_attempts WHERE expires_at<?').bind(now).run();
+    const attempt=await db.prepare('INSERT INTO auth_attempts(bucket,attempts,expires_at) VALUES(?,1,?) ON CONFLICT(bucket) DO UPDATE SET attempts=attempts+1 RETURNING attempts').bind(bucket,now+600000).first();if(attempt.attempts>20)return json({error:'試行が多すぎます。10分ほど待ってください'},429);
+    const record=await db.prepare('SELECT * FROM users WHERE id=?').bind(user.id).first();if(!record||!equal(await passwordHash(input.currentPassword,record.salt),record.password_hash))return json({error:'現在のパスワードが違います'},403);
+    const occupied=await db.prepare('SELECT id FROM users WHERE username=?').bind(username).first();if(occupied&&occupied.id!==user.id)return json({error:'このユーザー名は使用できません'},409);
+    try{
+      if(newPassword){
+        const salt=random(),digest=await passwordHash(newPassword,salt),token=random();
+        const result=await db.batch([
+          db.prepare('UPDATE users SET username=?,password_hash=?,salt=? WHERE id=? AND password_hash=?').bind(username,digest,salt,user.id,record.password_hash),
+          db.prepare('DELETE FROM sessions WHERE user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND password_hash=?)').bind(user.id,user.id,digest),
+          db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND password_hash=?)').bind(await hash(token),user.id,now+sessionLifetime*1000,user.id,digest)
+        ]);
+        if(!result[0].meta.changes)return json({error:'アカウントが更新されています。再度ログインしてください'},409);
+        return json({user:{id:user.id,username}},200,{'Set-Cookie':sessionCookie(token)});
+      }
+      const result=await db.prepare('UPDATE users SET username=? WHERE id=? AND password_hash=?').bind(username,user.id,record.password_hash).run();if(!result.meta.changes)return json({error:'アカウントが更新されています。再度ログインしてください'},409);
+      return json({user:{id:user.id,username}});
+    }catch(e){if(String(e).includes('UNIQUE'))return json({error:'このユーザー名は使用できません'},409);throw e;}
+  }
   if(path==='/api/foods/import'&&request.method==='POST'){
     if(!env.AI||!env.IMAGES)return json({error:'AI・画像保存の設定を確認してください'},503);
     const input=await body(request,4096);if(!/^[a-f0-9-]{36}$/.test(input.imageId||''))return json({error:'画像を選択してください'},400);
