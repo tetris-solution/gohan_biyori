@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS sharing_groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,owner_id TEXT NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sharing_members(group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),joined_at INTEGER NOT NULL,PRIMARY KEY(group_id,user_id));
+CREATE TABLE IF NOT EXISTS sharing_invites(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER);
+CREATE TABLE IF NOT EXISTS sharing_recipes(group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),recipe_id INTEGER NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,updated_at INTEGER NOT NULL,PRIMARY KEY(group_id,user_id,recipe_id));
+CREATE TABLE IF NOT EXISTS sharing_plans(group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),day TEXT NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,updated_at INTEGER NOT NULL,PRIMARY KEY(group_id,user_id,day));
+CREATE INDEX IF NOT EXISTS sharing_members_user ON sharing_members(user_id);
