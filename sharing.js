@@ -1,3 +1,4 @@
+import {pantryApi,pantrySchema} from './shared-pantry.js';
 import {normalizePlan,mealSlots} from './public/src/meal-plan.js';
 export const sharingSchema=[
  'CREATE TABLE IF NOT EXISTS sharing_groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,owner_id TEXT NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL)',
@@ -5,7 +6,7 @@ export const sharingSchema=[
  'CREATE TABLE IF NOT EXISTS sharing_invites(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at INTEGER NOT NULL,used_at INTEGER)',
  'CREATE TABLE IF NOT EXISTS sharing_recipes(group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),recipe_id INTEGER NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,updated_at INTEGER NOT NULL,PRIMARY KEY(group_id,user_id,recipe_id))',
  'CREATE TABLE IF NOT EXISTS sharing_plans(group_id TEXT NOT NULL REFERENCES sharing_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),day TEXT NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,updated_at INTEGER NOT NULL,PRIMARY KEY(group_id,user_id,day))',
- 'CREATE INDEX IF NOT EXISTS sharing_members_user ON sharing_members(user_id)',
+ 'CREATE INDEX IF NOT EXISTS sharing_members_user ON sharing_members(user_id)',...pantrySchema,
 ];
 const hash=async token=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),b=>b.toString(16).padStart(2,'0')).join('');
 const recipeFields=['id','name','side','description','ingredients','requiredIngredients','ingredientAmounts','steps','servings','time','meal','mood','img','url','sourceTitle','sourceType','video','nutrition','nutritionNote','nutritionSource','kcal','generated','createdAt'];
@@ -28,6 +29,7 @@ export async function sharingApi(request,env,user,{body,json,validData}){
  }
  const match=path.match(/^\/groups\/([a-f0-9-]{36})(.*)$/);if(!match)return json({error:'共有ページがありません'},404);const [,groupId,rest]=match;
  const group=await db.prepare('SELECT g.* FROM sharing_groups g JOIN sharing_members m ON g.id=m.group_id WHERE g.id=? AND m.user_id=?').bind(groupId,user.id).first();if(!group)return json({error:'共有グループにアクセスできません'},403);
+ if(rest==='/foods'||rest.startsWith('/foods/'))return pantryApi(request,env,user,groupId,rest,{body,json,validData});
  const admin=group.owner_id===user.id;
  if(rest===''&&method==='GET'){
   const [members,recipes,plans,invites]=await Promise.all([db.prepare('SELECT u.id,u.username FROM sharing_members m JOIN users u ON u.id=m.user_id WHERE m.group_id=? ORDER BY m.joined_at').bind(groupId).all(),db.prepare('SELECT r.*,u.username FROM sharing_recipes r JOIN users u ON u.id=r.user_id WHERE group_id=? ORDER BY updated_at DESC').bind(groupId).all(),db.prepare('SELECT p.*,u.username FROM sharing_plans p JOIN users u ON u.id=p.user_id WHERE group_id=? ORDER BY day DESC,updated_at DESC').bind(groupId).all(),admin?db.prepare('SELECT id,expires_at FROM sharing_invites WHERE group_id=? AND used_at IS NULL AND expires_at>?').bind(groupId,Date.now()).all():Promise.resolve({results:[]})]);
@@ -42,7 +44,7 @@ export async function sharingApi(request,env,user,{body,json,validData}){
   const target=memberDelete[1];if((!admin&&target!==user.id)||target===group.owner_id)return json({error:'このメンバーを解除できません。作成者はグループを削除してください'},403);
   await db.batch([db.prepare('DELETE FROM sharing_recipes WHERE group_id=? AND user_id=?').bind(groupId,target),db.prepare('DELETE FROM sharing_plans WHERE group_id=? AND user_id=?').bind(groupId,target),db.prepare('DELETE FROM sharing_members WHERE group_id=? AND user_id=?').bind(groupId,target)]);return json({ok:true});
  }
- if(rest===''&&method==='DELETE'){if(!admin)return json({error:'グループを削除できません'},403);await db.batch(['sharing_invites','sharing_recipes','sharing_plans','sharing_members','sharing_groups'].map(table=>db.prepare(`DELETE FROM ${table} WHERE ${table==='sharing_groups'?'id':'group_id'}=?`).bind(groupId)));return json({ok:true});}
+ if(rest===''&&method==='DELETE'){if(!admin)return json({error:'グループを削除できません'},403);await db.batch(['sharing_foods','sharing_invites','sharing_recipes','sharing_plans','sharing_members','sharing_groups'].map(table=>db.prepare(`DELETE FROM ${table} WHERE ${table==='sharing_groups'?'id':'group_id'}=?`).bind(groupId)));return json({ok:true});}
  const image=rest.match(/^\/images\/([a-f0-9-]{36})\/([a-f0-9-]{36})$/);
  if(image&&method==='GET'){
   const [,owner,id]=image;if(!env.IMAGES)return json({error:'画像がありません'},404);const ref='/api/images/'+id;const rows=await db.prepare('SELECT data FROM sharing_recipes WHERE group_id=? AND user_id=? UNION ALL SELECT data FROM sharing_plans WHERE group_id=? AND user_id=?').bind(groupId,owner,groupId,owner).all();const referenced=rows.results.some(row=>{const d=JSON.parse(row.data);return d.img===ref||mealSlots.some(slot=>d[slot]?.some(r=>r.img===ref));});if(!referenced)return json({error:'画像がありません'},404);const object=await env.IMAGES.get(owner+'/'+id);if(!object)return json({error:'画像がありません'},404);return new Response(object.body,{headers:{'Content-Type':object.httpMetadata?.contentType||'image/jpeg','Cache-Control':'private, no-store'}});

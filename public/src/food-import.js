@@ -30,9 +30,9 @@ function foodPreview(ui,result,imageId){
   const update=()=>{const count=list.children.length;button.textContent=count+'品を一括登録';button.disabled=!count;document.getElementById('food-draft-add').disabled=count>=50;};update();
   document.getElementById('food-draft-add').onclick=()=>{if(list.children.length>=50)return;list.insertAdjacentHTML('beforeend',row({category:'その他'}));update();};
   list.onclick=e=>{const b=e.target.closest('[data-remove-food-draft]');if(b){b.closest('.food-import-row').remove();update();}};
-  document.getElementById('food-batch-form').onsubmit=e=>{
+  document.getElementById('food-batch-form').onsubmit=async e=>{
     e.preventDefault();const rows=[...list.children].map(r=>({name:r.querySelector('[data-draft-name]').value.trim(),quantity:Number(r.querySelector('[name="draftQty"]').value),unit:r.querySelector('[data-draft-unit]').value.trim(),category:r.querySelector('[data-draft-category]').value,location:r.querySelector('[data-draft-location]').value,expiryType:r.querySelector('[data-draft-expiry-type]').value,expiryDate:r.querySelector('[data-draft-expiry]').value}));
     const error=document.getElementById('food-batch-error');if(!rows.length||rows.length>50||rows.some(f=>!f.name||!Number.isFinite(f.quantity)||f.quantity<=0||f.quantity>999999)){error.textContent='食材名と0より大きい数量を入力してください';return;}
-    button.disabled=true;try{ui.onSave(rows,imageId);}catch(e){error.textContent=e.message;button.disabled=false;}
+    button.disabled=true;try{await ui.onSave(rows,imageId);}catch(e){error.textContent=e.message;button.disabled=false;}
   };
 }
