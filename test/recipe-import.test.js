@@ -15,3 +15,18 @@ test('preserves Instagram caption line breaks and uses source names and amounts 
  const result=await extractRecipe({AI:{async run(){return {response:{name:'卵焼き',description:'卵料理',servings:2,time:5,requiredIngredients:[{name:'宝',quantity:2,unit:'個',amountText:'2個'},{name:'醤油',quantity:9,unit:'大さず',amountText:'大さず9'}],steps:['醤油大さず3を混ぜる']}};}}},{page});
  assert.equal(result.requiredIngredients[0].name,'卵');assert.equal(result.requiredIngredients[1].quantity,3);assert.equal(result.requiredIngredients[1].unit,'大さじ');assert.equal(result.steps[0],'醤油大さじ3を混ぜる');
 });
+
+test('Instagram app share parameters canonicalize posts, without altering other query URLs',async()=>{
+ const expected='https://www.instagram.com/reel/DeOncWThkBH/';
+ assert.equal(publicUrl(expected+'?stkn=bWVvY3Y2cDUzaWJy').href,expected);
+ assert.equal(publicUrl('https://m.instagram.com/reels/DeOncWThkBH?igsh=abc&utm_source=share#caption').href,expected);
+ assert.equal(publicUrl('https://recipes.com/view?id=42').search,'?id=42');
+ assert.equal(publicUrl('https://instagram.com.evil.com/reel/abc/?stkn=x').search,'?stkn=x');
+ assert.equal(publicUrl('https://www.instagram.com/share/reel/opaque/?stkn=x').search,'?stkn=x');
+ const requests=[];const fetcher=async url=>{if(url.includes('cloudflare-dns.com'))return Response.json({Status:0,Answer:[{type:1,data:'93.184.216.34'}]});requests.push(url);return requests.length===1?new Response(null,{status:302,headers:{Location:'/reel/DeOncWThkBH/?igsh=abc'}}):new Response('<meta property="og:description" content="材料&#10;卵 2個">',{headers:{'Content-Type':'text/html'}});};
+ const result=await fetchRecipePage('https://www.instagram.com/share/reel/opaque/',fetcher);assert.equal(result.url,expected);assert.equal(requests[1],expected);assert.equal(pageRecipe(result.html,result.url).text,'材料\n卵 2個');
+});
+test('Instagram social metadata attribution is excluded from caption, preserving original quantities',()=>{
+ const page=pageRecipe('<meta property="og:description" content="1,696 likes, 54 comments - cook on October 8, 2026: &quot;材料&#10;卵 2個&#10;醤油 大さじ3&quot;. ">','https://www.instagram.com/reel/abc/');
+ assert.equal(page.text,'材料\n卵 2個\n醤油 大さじ3');
+});
