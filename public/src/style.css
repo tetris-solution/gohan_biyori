@@ -105,3 +105,9 @@ button[aria-pressed=true],.nav button.active,.recipe-archive-tabs button.active{
 .import-notification{position:relative;background:#fff;border:1px solid #e2d9d5;border-left:4px solid var(--primary,#c3432e);border-radius:16px;padding:16px 38px 16px 16px;box-shadow:0 6px 24px #0002;pointer-events:auto}
 .import-notification strong{font-size:15px}.import-notification p{font-size:13px;margin:8px 0;overflow-wrap:anywhere}.import-notification .outline{padding:8px 12px;margin:4px 4px 0 0}.import-dismiss{position:absolute;right:8px;top:8px;background:none;border:0;width:30px;height:30px;font-size:20px}
 @media(min-width:761px){.import-notifications{left:256px;bottom:20px}}
+
+.recipe-article .recipe-columns{grid-template-columns:minmax(0,1fr)}
+.recipe-delete-actions{display:flex;justify-content:flex-end;margin:24px 0 36px}
+.recipe-delete-button{color:#b73525;border-color:#b73525}
+#confirm-recipe-delete{background:#b73525;color:#fff}
+@media(max-width:760px){.recipe-delete-actions .recipe-delete-button{width:100%;min-height:44px}}
