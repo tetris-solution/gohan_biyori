@@ -107,7 +107,7 @@ button[aria-pressed=true],.nav button.active,.recipe-archive-tabs button.active{
 @media(min-width:761px){.import-notifications{left:256px;bottom:20px}}
 
 .recipe-article .recipe-columns{grid-template-columns:minmax(0,1fr)}
-.recipe-delete-actions{display:flex;justify-content:flex-end;margin:24px 0 36px}
-.recipe-delete-button{color:#b73525;border-color:#b73525}
+.recipe-delete-actions{display:flex;justify-content:center;margin:24px 0 36px}
+.recipe-delete-button{color:#b73525;border-color:#b73525;display:inline-flex;align-items:center;justify-content:center;gap:8px}
 #confirm-recipe-delete{background:#b73525;color:#fff}
 @media(max-width:760px){.recipe-delete-actions .recipe-delete-button{width:100%;min-height:44px}}
