@@ -7,7 +7,7 @@ export function choiceField(id,name,label,value,options,attrs=''){
   return `<div class="choice-field"><span class="choice-label" id="${id}-label">${escape(label)}</span><input type="hidden" id="${id}" name="${name}" value="${escape(value)}" ${attrs}><div class="choice-buttons" role="group" aria-labelledby="${id}-label">${options.map(([v,text,i])=>`<button type="button" data-choice-target="${id}" data-choice-value="${escape(v)}" aria-pressed="${v===value}" class="choice-button ${v===value?'selected':''}">${icon(i)}<span>${escape(text)}</span></button>`).join('')}</div></div>`;
 }
 export function unitField(id,name,value='',attrs=''){
-  const options=[['','なし','unset'],...['個','本','枚','袋','パック','束'].map(u=>[u,u,['袋','パック'].includes(u)?'pack':'count']),...['g','kg'].map(u=>[u,u,'weight']),...['ml','L'].map(u=>[u,u,'liquid'])];
+  const options=[['','なし','unset'],...['個','本','枚','袋','パック','束'].map(u=>[u,u,['袋','パック'].includes(u)?'pack':'count']),...['大さじ','小さじ','カップ','合'].map(u=>[u,u,'liquid']),...['g','kg'].map(u=>[u,u,'weight']),...['ml','L'].map(u=>[u,u,'liquid'])];
   if(value&&!options.some(o=>o[0]===value))options.push([value,value,'count']);
   return choiceField(id,name,'単位',value,options,attrs)+`<details class="custom-unit"><summary>その他の単位を入力</summary><label for="${id}-custom">単位（自由入力）</label><input id="${id}-custom" data-choice-custom="${id}" type="text" maxlength="30" placeholder="例：カップ"></details>`;
 }

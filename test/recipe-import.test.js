@@ -8,3 +8,10 @@ test('Instagram metadata preserves full caption and user caption extraction retu
  const caption='材料：卵2個、トマト1個。作り方：卵を混ぜて、トマトと炒める。';const page=pageRecipe('<meta property="og:description" content="'+caption+'">','https://www.instagram.com/p/ABCdefghijk/');assert.equal(page.isCaption,true);assert.equal(page.text,caption);assert.equal(page.video.kind,'embed');let sent;
  const result=await extractRecipe({AI:{async run(model,input){sent=input;return {response:{name:'卵とトマト炒め',description:'卵とトマトの炒め物',servings:1,time:10,requiredIngredients:[{name:'卵',quantity:2,unit:'個',amountText:'2個'}],steps:['卵を溶く。','トマトと卵を炒め、十分加熱する。']}};}}},{page});assert.equal(result.steps.length,2);assert.match(sent.messages[0].content,/キャプション/);assert.match(sent.messages[1].content,/卵2個/);
 });
+
+test('preserves Instagram caption line breaks and uses source names and amounts over AI mistakes',async()=>{
+ const page=pageRecipe('<meta property="og:description" content="材料&#10;卵 2個&#10;醤油 大さじ3">','https://www.instagram.com/p/abc/');
+ assert.match(page.text,/卵 2個\n醤油/);
+ const result=await extractRecipe({AI:{async run(){return {response:{name:'卵焼き',description:'卵料理',servings:2,time:5,requiredIngredients:[{name:'宝',quantity:2,unit:'個',amountText:'2個'},{name:'醤油',quantity:9,unit:'大さず',amountText:'大さず9'}],steps:['醤油大さず3を混ぜる']}};}}},{page});
+ assert.equal(result.requiredIngredients[0].name,'卵');assert.equal(result.requiredIngredients[1].quantity,3);assert.equal(result.requiredIngredients[1].unit,'大さじ');assert.equal(result.steps[0],'醤油大さじ3を混ぜる');
+});
