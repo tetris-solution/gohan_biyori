@@ -17,7 +17,7 @@ export function createSharingUI(ui){
  function view(kind='settings'){
   ensure();const group=active(),header=`<h1>${kind==='settings'?'家族・知り合いと共有':kind==='recipes'?'共有レシピ':'共有献立'}</h1>`;
   if(kind==='plans'){
-   const heading=`<div class="planner-heading sharing-heading"><div class="planner-title-line">${header}${links('plans',true)}</div><div class="planner-actions">${group?`<div class="sharing-group-picker" data-header-action>${groupSelect(true)}</div>`:''}<button class="primary planner-ai-button" data-header-action data-action="generate">${ui.icon('spark')} AIで作成</button></div></div><div class="page-actions"><button class="primary" data-action="meal-register">${ui.icon('plus')} 献立登録</button></div>`;
+   const heading=`<div class="planner-heading sharing-heading"><div class="planner-title-line">${header}${links('plans',true)}</div><div class="planner-actions"><button class="primary planner-ai-button" data-header-action data-action="generate">${ui.icon('spark')} AIで作成</button></div></div>${group?`<div class="planner-group-row"><div class="sharing-group-picker" data-header-action>${groupSelect(true)}</div></div>`:''}<div class="page-actions"><button class="primary" data-action="meal-register">${ui.icon('plus')} 献立登録</button></div>`;
    const calendar=ui.calendar();
    if(!group)return heading+calendar+'<p>共有グループに参加すると献立を登録・確認できます。</p><button class="outline" data-sharing-settings>共有を設定</button>';
    if(!data||loadedGroup!==group.id)return heading+calendar+`<p class="empty">${ui.esc(error||'共有献立を読み込み中…')}</p>${error?'<button class="outline" data-sharing-refresh>再試行</button>':''}`;
