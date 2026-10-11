@@ -1,3 +1,4 @@
+import {communitiesApi,communitySchema} from './communities.js';
 import {isInstagramUrl} from './public/src/recipe-source.js';
 import {sharingApi,sharingSchema} from './sharing.js';
 import {commerceApi,commerceSchema} from './commerce.js';
@@ -13,7 +14,7 @@ import {validProfile,calculateTargets,validNutrition,totalNutrition,assessNutrit
 import {validIngredient} from './public/src/ingredients.js';
 import {publicUrl,fetchRecipePage,pageRecipe,extractRecipe} from './recipe-import.js';
 const schemaStatements=["CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL)", "CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)", "CREATE TABLE IF NOT EXISTS user_data (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, data TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS auth_attempts (bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS ai_usage (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, day))"];
-async function initializeSchema(db){await db.batch([...schemaStatements,...creatorSchema,...commerceSchema,...sharingSchema].map(sql=>db.prepare(sql)));}
+async function initializeSchema(db){await db.batch([...schemaStatements,...creatorSchema,...commerceSchema,...sharingSchema,...communitySchema].map(sql=>db.prepare(sql)));}
 const encoder = new TextEncoder();
 const sessionLifetime = 30 * 24 * 60 * 60;
 const cookieName = '__Host-konade';
@@ -90,10 +91,11 @@ async function api(request, env) {
   }
   const user=await currentUser(request,db);
   if(!user)return json({error:'ログインしてください'},401);
+  if(path==='/api/communities')return communitiesApi(request,env,user,{body,json,validData});
   if(path==='/api/sharing'||path.startsWith('/api/sharing/'))return sharingApi(request,env,user,{body,json,validData});
   if(path.startsWith('/api/commerce/'))return commerceApi(request,env,user,{body,json});
   if(path==='/api/me'&&request.method==='GET')return json({user});
-  if(path==='/api/creator/profile'||path==='/api/creators'||path.startsWith('/api/creators/'))return creatorsApi(request,env,user,{body,json});
+  if(path.startsWith('/api/creator/')||path==='/api/creators'||path.startsWith('/api/creators/'))return creatorsApi(request,env,user,{body,json});
   if(path==='/api/account'&&request.method==='PUT'){
     const input=await body(request,4096),username=typeof input.username==='string'?input.username.trim().toLowerCase():user.username,newPassword=input.newPassword||'';
     if(!/^[a-z0-9_-]{3,40}$/.test(username)||typeof input.currentPassword!=='string'||input.currentPassword.length<12||input.currentPassword.length>128||typeof newPassword!=='string'||(newPassword&&(newPassword.length<12||newPassword.length>128)))return json({error:'ユーザー名は英数字・_・-で3〜40文字、パスワードは12〜128文字にしてください'},400);
