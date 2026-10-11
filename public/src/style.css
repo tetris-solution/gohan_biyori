@@ -161,3 +161,5 @@ h1.page-navigation-title{position:absolute!important;width:1px!important;height:
 
 :root{--ink:#202020;--muted:#5f5f5f;--line:#dedede}.brand-mark{flex-shrink:0}.metadata,.nutrition-unknown,.nutrition-mini small,.meal-body>p,.community-count,.community-meta,.publication-tools small{color:#616161}.notebook-keyword-search input::placeholder,input::placeholder,textarea::placeholder{color:#636363;opacity:1}.community-role-badge{color:#555}.community-list-card,.community-recipe,.communities-page .info-card{border-color:#dedede}.community-list-card:hover{border-color:#b73525}.recipe-search-tabs,.recipe-scope-switch{border-color:#dedede}
 .brand-mark{width:30px;height:30px;max-width:30px;display:block;flex:0 0 30px}.header-brand,.auth-card .brand{display:flex;align-items:center;gap:8px}
+
+.brand .brand-mark{width:30px;height:30px}
