@@ -1,3 +1,4 @@
+import {importJobSchema,importJobsApi,processImportJobs} from './recipe-import-jobs.js';
 import {communitiesApi,communitySchema} from './communities.js';
 import {isInstagramUrl} from './public/src/recipe-source.js';
 import {sharingApi,sharingSchema} from './sharing.js';
@@ -14,7 +15,7 @@ import {validProfile,calculateTargets,validNutrition,totalNutrition,assessNutrit
 import {validIngredient} from './public/src/ingredients.js';
 import {publicUrl,fetchRecipePage,pageRecipe,extractRecipe} from './recipe-import.js';
 const schemaStatements=["CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL)", "CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)", "CREATE TABLE IF NOT EXISTS user_data (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, data TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS auth_attempts (bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at INTEGER NOT NULL)", "CREATE TABLE IF NOT EXISTS ai_usage (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, day))"];
-async function initializeSchema(db){await db.batch([...schemaStatements,...creatorSchema,...commerceSchema,...sharingSchema,...communitySchema].map(sql=>db.prepare(sql)));}
+async function initializeSchema(db){await db.batch([...schemaStatements,...creatorSchema,...commerceSchema,...sharingSchema,...communitySchema,...importJobSchema].map(sql=>db.prepare(sql)));}
 const encoder = new TextEncoder();
 const sessionLifetime = 30 * 24 * 60 * 60;
 const cookieName = '__Host-konade';
@@ -57,7 +58,7 @@ function validData(data) {
   if(!data.stores.every(x=>x&&typeof x.name==='string'&&typeof x.url==='string'&&/^https?:\/\//.test(x.url)))return false;
   return Object.values(data.plans).every(p=>validPlan(p,new Set(data.recipes.map(r=>r.id))));
 }
-async function api(request, env) {
+async function api(request, env,ctx) {
   const url=new URL(request.url), path=url.pathname, db=env.DB;
   if(!db)return json({error:'DBがまだ設定されていません'},503);
   if(path==='/api/stripe/webhook')return stripeWebhook(request,env,json);
@@ -148,16 +149,8 @@ async function api(request, env) {
     const day=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});const usage=await db.prepare('INSERT INTO ai_usage(user_id,day,attempts) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET attempts=attempts+1 WHERE attempts<10 RETURNING attempts').bind(user.id,day).first();if(!usage)return json({error:'AI解析・献立提案は合計1日10回までです'},429);
     try{const foods=await extractFoods(env,image);return json({foods,remaining:10-usage.attempts});}catch(e){console.error('Food extraction failed',e.message);return json({error:'食材を読み取れませんでした。鮮明な写真で再度試すか、手入力で登録してください。失敗も回数に含まれます'},502);}
   }
-  if(path==='/api/recipes/import'&&request.method==='POST'){
-    if(!env.AI)return json({error:'Workers AIの設定を確認してください'},503);
-    const input=await body(request,70000);if(!['url','image','caption'].includes(input.kind))return json({error:'登録方法を選択してください'},400);
-    if(input.kind==='caption'&&(typeof input.caption!=='string'||input.caption.trim().length<5||input.caption.length>16000))return json({error:'材料の書かれたキャプションを入力してください'},400);
-    let image;if(input.kind==='url'||input.kind==='caption'){try{if(input.kind==='url'||input.url)input.url=publicUrl(input.url).href}catch(e){return json({error:e.message},400)}}else{if(!/^[a-f0-9-]{36}$/.test(input.imageId||''))return json({error:'画像を選択してください'},400);if(!env.IMAGES)return json({error:'画像保存の設定を確認してください'},503);image=await env.IMAGES.get(user.id+'/'+input.imageId);if(!image||!['image/jpeg','image/png','image/webp'].includes(image.httpMetadata?.contentType))return json({error:'画像が見つかりません'},404);if(image.size>5*1024*1024)return json({error:'画像は5MB以下にしてください'},413);}
-    const instagramFallback=()=>({fallback:'instagram-caption',sourceUrl:sourceUrl||input.url});
-    let page,sourceUrl=input.kind==='caption'?(input.url||''):'';if(input.kind==='caption')page={isCaption:true,name:'',description:'',img:'',sourceTitle:'Instagramキャプション',recipeIngredients:[],text:input.caption};try{if(input.kind==='url'){const fetched=await fetchRecipePage(input.url);sourceUrl=fetched.url;page=pageRecipe(fetched.html,sourceUrl);if(page.isCaption&&!page.text.trim())return json({error:'Instagramのキャプションを取得できませんでした。キャプションを貼り付けるか、材料が映ったスクショから登録してください',...instagramFallback()},422);}}catch(e){if(isInstagramUrl(input.url))return json({error:'Instagramから投稿を取得できませんでした。非公開・ログインが必要な投稿などは自動取得できません。キャプションを貼り付けるか、材料が映ったスクショから登録してください',...instagramFallback()},422);return json({error:e.message.includes('URL')||e.message.includes('ページ')||e.message.includes('サイト')?e.message:'サイトを取得できませんでした。画像か手入力で登録してください'},422);}
-    const day=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});const usage=await db.prepare('INSERT INTO ai_usage(user_id,day,attempts) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET attempts=attempts+1 WHERE attempts<10 RETURNING attempts').bind(user.id,day).first();if(!usage)return json({error:'AI解析・献立提案は合計1日10回までです'},429);
-    try{const result=await extractRecipe(env,{page,image});return json({recipe:{...result,...(page?{name:page.isCaption?result.name:page.name||result.name,description:page.isCaption?result.description:page.description||result.description,img:page.img,video:page.video,url:sourceUrl,sourceTitle:page.sourceTitle,sourceType:'url'}:{img:'/api/images/'+input.imageId,url:'',sourceTitle:'アップロード画像',sourceType:'image'})},remaining:10-usage.attempts});}catch(e){console.error('Recipe extraction failed',e.message);if(input.kind==='url'&&isInstagramUrl(sourceUrl))return json({error:'Instagramのキャプションから材料・分量を読み取れませんでした。材料が動画内だけにある場合は、その場面のスクショから登録してください。AI解析の失敗は回数に含まれます',...instagramFallback()},502);return json({error:'レシピを解析できませんでした。鮮明な材料の画像か手入力で登録してください。失敗も回数に含まれます'},502);}
-  }
+  if(path.startsWith('/api/recipes/jobs'))return importJobsApi(request,env,user,ctx,{body,json,extract:runRecipeImport});
+  if(path==='/api/recipes/import'&&request.method==='POST')return runRecipeImport(request,env,user);
   if(path==='/api/ai/plan'&&request.method==='POST'){
     if(!env.AI)return json({error:'Workers AIが未設定です。AIバインディングを確認してください'},503);
     const input=await body(request,20000);
@@ -236,10 +229,21 @@ async function api(request, env) {
   }
   return json({error:'ページがありません'},404);
 }
-export default {async fetch(request, env){
+
+async function runRecipeImport(request,env,user){const db=env.DB;
+    if(!env.AI)return json({error:'Workers AIの設定を確認してください'},503);
+    const input=await body(request,70000);if(!['url','image','caption'].includes(input.kind))return json({error:'登録方法を選択してください'},400);
+    if(input.kind==='caption'&&(typeof input.caption!=='string'||input.caption.trim().length<5||input.caption.length>16000))return json({error:'材料の書かれたキャプションを入力してください'},400);
+    let image;if(input.kind==='url'||input.kind==='caption'){try{if(input.kind==='url'||input.url)input.url=publicUrl(input.url).href}catch(e){return json({error:e.message},400)}}else{if(!/^[a-f0-9-]{36}$/.test(input.imageId||''))return json({error:'画像を選択してください'},400);if(!env.IMAGES)return json({error:'画像保存の設定を確認してください'},503);image=await env.IMAGES.get(user.id+'/'+input.imageId);if(!image||!['image/jpeg','image/png','image/webp'].includes(image.httpMetadata?.contentType))return json({error:'画像が見つかりません'},404);if(image.size>5*1024*1024)return json({error:'画像は5MB以下にしてください'},413);}
+    const instagramFallback=()=>({fallback:'instagram-caption',sourceUrl:sourceUrl||input.url});
+    let page,sourceUrl=input.kind==='caption'?(input.url||''):'';if(input.kind==='caption')page={isCaption:true,name:'',description:'',img:'',sourceTitle:'Instagramキャプション',recipeIngredients:[],text:input.caption};try{if(input.kind==='url'){const fetched=await fetchRecipePage(input.url);sourceUrl=fetched.url;page=pageRecipe(fetched.html,sourceUrl);if(page.isCaption&&!page.text.trim())return json({error:'Instagramのキャプションを取得できませんでした。キャプションを貼り付けるか、材料が映ったスクショから登録してください',...instagramFallback()},422);}}catch(e){if(isInstagramUrl(input.url))return json({error:'Instagramから投稿を取得できませんでした。非公開・ログインが必要な投稿などは自動取得できません。キャプションを貼り付けるか、材料が映ったスクショから登録してください',...instagramFallback()},422);return json({error:e.message.includes('URL')||e.message.includes('ページ')||e.message.includes('サイト')?e.message:'サイトを取得できませんでした。画像か手入力で登録してください'},422);}
+    const day=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});const usage=await db.prepare('INSERT INTO ai_usage(user_id,day,attempts) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET attempts=attempts+1 WHERE attempts<10 RETURNING attempts').bind(user.id,day).first();if(!usage)return json({error:'AI解析・献立提案は合計1日10回までです'},429);
+    try{const result=await extractRecipe(env,{page,image});return json({recipe:{...result,...(page?{name:page.isCaption?result.name:page.name||result.name,description:page.isCaption?result.description:page.description||result.description,img:page.img,video:page.video,url:sourceUrl,sourceTitle:page.sourceTitle,sourceType:'url'}:{img:'/api/images/'+input.imageId,url:'',sourceTitle:'アップロード画像',sourceType:'image'})},remaining:10-usage.attempts});}catch(e){console.error('Recipe extraction failed',e.message);if(input.kind==='url'&&isInstagramUrl(sourceUrl))return json({error:'Instagramのキャプションから材料・分量を読み取れませんでした。材料が動画内だけにある場合は、その場面のスクショから登録してください。AI解析の失敗は回数に含まれます',...instagramFallback()},502);return json({error:'レシピを解析できませんでした。鮮明な材料の画像か手入力で登録してください。失敗も回数に含まれます'},502);}
+}
+export default {async scheduled(controller,env,ctx){ctx.waitUntil((async()=>{try{await processImportJobs(env,runRecipeImport);}catch(error){if(/no such table/i.test(error.message))return;throw error;}})());},async fetch(request, env,ctx){
   let response;
   const isApi=new URL(request.url).pathname.startsWith('/api/');const retryRequest=isApi?request.clone():null;
-  try{try{response=isApi?await api(request,env):await env.ASSETS.fetch(request)}catch(error){if(isApi&&env.DB&&/no such table/i.test(error.message)){await initializeSchema(env.DB);response=await api(retryRequest,env)}else throw error}}catch(e){console.error('Request failed',new URL(request.url).pathname,e.message);response=json({error:e.message==='TOO_LARGE'?'データが大きすぎます':e.message==='BAD_BODY'?'送信データを確認してください':'処理に失敗しました。時間をおいて再試行してください'},e.message==='TOO_LARGE'?413:e.message==='BAD_BODY'?400:500)}
-  const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self'; media-src 'self' https:; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.instagram.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  try{try{response=isApi?await api(request,env,ctx):await env.ASSETS.fetch(new URL(request.url).pathname==='/share-target'?new Request(new URL('/',request.url),request):request)}catch(error){if(isApi&&env.DB&&/no such table/i.test(error.message)){await initializeSchema(env.DB);response=await api(retryRequest,env,ctx)}else throw error}}catch(e){console.error('Request failed',new URL(request.url).pathname,e.message);response=json({error:e.message==='TOO_LARGE'?'データが大きすぎます':e.message==='BAD_BODY'?'送信データを確認してください':'処理に失敗しました。時間をおいて再試行してください'},e.message==='TOO_LARGE'?413:e.message==='BAD_BODY'?400:500)}
+  const headers=new Headers(response.headers);if(new URL(request.url).pathname==='/sw.js')headers.set('Cache-Control','no-cache');headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self'; media-src 'self' https:; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.instagram.com; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   return new Response(response.body,{status:response.status,headers});
 }};

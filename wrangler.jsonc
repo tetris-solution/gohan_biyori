@@ -24,5 +24,10 @@
   ],
   "ai": {
     "binding": "AI"
+  },
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
   }
 }

@@ -1,0 +1,8 @@
+import {canonicalRecipeUrl} from './recipe-source.js';
+const pendingKey='gohan-no-wa-shared-recipe';
+export function sharedRecipeUrl(values){for(const value of values){const text=String(value||'').slice(0,12000),urls=text.match(/https?:\/\/[^\s<>"\u3000]+/gi)||[];for(let raw of urls){raw=raw.replace(/[)\]、。]+$/,'');try{const url=new URL(raw);if(url.protocol!=='https:'||url.username||url.password||raw.length>2000||!url.hostname.includes('.')||/^(localhost|127\.)/.test(url.hostname))continue;return canonicalRecipeUrl(url.href);}catch{}}}return '';}
+export function captureSharedRecipe(){if(location.pathname!=='/share-target')return;const params=new URLSearchParams(location.search),url=sharedRecipeUrl([params.get('url'),params.get('text'),params.get('title')]);try{if(url)sessionStorage.setItem(pendingKey,url);}catch{}history.replaceState(null,'','/#recipes');}
+export function takeSharedRecipe(){try{const url=sessionStorage.getItem(pendingKey);sessionStorage.removeItem(pendingKey);return url||'';}catch{return '';}}
+let installPrompt=null;
+export function setupRecipePwa(){if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;});}
+export async function installRecipePwa(open){if(installPrompt){await installPrompt.prompt();installPrompt=null;return;}open('<h2>ホーム画面に追加</h2><p>AndroidのChromeでは、ブラウザのメニューから「アプリをインストール」または「ホーム画面に追加」を選んでください。</p><p>追加後、Instagramの共有メニューの「その他」から「ごはんの輪」を選ぶとURLを受け取れます。表示される場所は端末やInstagramのバージョンで異なります。</p><p>iPhoneはSafariの共有ボタンから「ホーム画面に追加」でアプリとして利用できます。ただし、Instagramの共有先にWebアプリを表示する機能には対応していません。URLをコピーしてレシピ登録に貼り付けてください。</p>');}
